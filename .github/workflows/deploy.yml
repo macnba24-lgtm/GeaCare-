@@ -4,6 +4,9 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,9 +26,6 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
-
-      - name: Run Build Runner
-        run: dart run build_runner build --delete-conflicting-outputs
 
       - name: Build Web App
         run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
