@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
 import '../models/paziente.dart';
 import '../models/listino.dart';
+import '../services/pdf_service.dart';
 
 class PreventiviScreen extends StatefulWidget {
   const PreventiviScreen({super.key});
@@ -12,22 +14,22 @@ class PreventiviScreen extends StatefulWidget {
 
 class _PreventiviScreenState extends State<PreventiviScreen> {
   final TextEditingController _pazienteController = TextEditingController();
-  Paziente? _pazienteSelezionato;
 
+  Paziente? _pazienteSelezionato;
   DateTime? _dataAppuntamento = DateTime.now();
   TimeOfDay? _oraAppuntamento = TimeOfDay.now();
 
-  final List<VoceListino> _vociSelezionate = [];
-  
+  final List<Map<String, dynamic>> _vociPreventivo = [];
+
   double _costoMateriali = 0.0;
   double _kmSoloAndata = 0.0;
   double _costoRifiuti = 0.0;
   bool _applicaEnpapi = true;
 
-  // Calcoli
-  double get _totalePrestazioni => _vociSelezionate.fold(0.0, (sum, item) => sum + item.prezzo);
-  double get _rimborsoKm => (_kmSoloAndata * 2) * 0.50; // A/R da Mereto di Capitolo
-  double get _imponibile => _totalePrestazioni + _costoMateriali + _costoRifiuti;
+  double get _totaleServizi => _vociPreventivo.fold(0.0, (sum, item) => sum + (item['prezzo'] as double));
+  double get _kmTotaliAR => _kmSoloAndata * 2;
+  double get _rimborsoKm => _kmTotaliAR * 0.50;
+  double get _imponibile => _totaleServizi + _costoMateriali + _costoRifiuti;
   double get _rivalsaEnpapi => _applicaEnpapi ? (_imponibile * 0.04) : 0.0;
   double get _subtotale => _imponibile + _rimborsoKm + _rivalsaEnpapi;
   double get _bollo => (_subtotale > 77.47) ? 2.0 : 0.0;
@@ -35,8 +37,11 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pazientiBox = Hive.box<Paziente>('pazientiBox');
-    final listaPazienti = pazientiBox.values.toList();
+    final pazientiBox = Hive.isBoxOpen('pazientiBox') ? Hive.box<Paziente>('pazientiBox') : null;
+    final listinoBox = Hive.isBoxOpen('listinoBox') ? Hive.box<VoceListino>('listinoBox') : null;
+
+    final listaPazienti = pazientiBox?.values.toList() ?? [];
+    final listaListino = listinoBox?.values.toList() ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -49,16 +54,12 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. AUTOCOMPLETE PAZIENTE
             Autocomplete<Paziente>(
               displayStringForOption: (Paziente p) => '${p.nome} ${p.cognome}',
               optionsBuilder: (TextEditingValue textEditingValue) {
-                if (textEditingValue.text.isEmpty) {
-                  return const Iterable<Paziente>.empty();
-                }
+                if (textEditingValue.text.isEmpty) return const Iterable<Paziente>.empty();
                 return listaPazienti.where((Paziente p) {
-                  final nomeCompleto = '${p.nome} ${p.cognome}'.toLowerCase();
-                  return nomeCompleto.contains(textEditingValue.text.toLowerCase());
+                  return '${p.nome} ${p.cognome}'.toLowerCase().contains(textEditingValue.text.toLowerCase());
                 });
               },
               onSelected: (Paziente p) {
@@ -80,22 +81,18 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               },
             ),
             const SizedBox(height: 12),
-
-            // 2. DATA E ORA APPUNTAMENTO (Non incluse nel PDF)
             Card(
               elevation: 0,
               color: Colors.teal.shade50,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+                padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
                 child: Row(
                   children: [
                     Expanded(
                       child: TextButton.icon(
                         icon: const Icon(Icons.calendar_month, color: Colors.teal),
                         label: Text(
-                          _dataAppuntamento == null
-                              ? 'Data Appuntamento'
-                              : '${_dataAppuntamento!.day}/${_dataAppuntamento!.month}/${_dataAppuntamento!.year}',
+                          _dataAppuntamento == null ? 'Data Appuntamento' : DateFormat('dd/MM/yyyy').format(_dataAppuntamento!),
                           style: const TextStyle(color: Colors.teal),
                         ),
                         onPressed: () async {
@@ -113,9 +110,7 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
                       child: TextButton.icon(
                         icon: const Icon(Icons.access_time, color: Colors.teal),
                         label: Text(
-                          _oraAppuntamento == null
-                              ? 'Ora'
-                              : _oraAppuntamento!.format(context),
+                          _oraAppuntamento == null ? 'Ora' : _oraAppuntamento!.format(context),
                           style: const TextStyle(color: Colors.teal),
                         ),
                         onPressed: () async {
@@ -132,37 +127,90 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // 3. SEZIONE COSTI DEDICATI
-            const Text('Dettagli e Costi Extra', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text('Aggiungi Servizi dal Listino', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
-
-            // Materiali
+            Autocomplete<VoceListino>(
+              displayStringForOption: (VoceListino v) => '${v.titolo} (€ ${v.prezzo.toStringAsFixed(2)})',
+              optionsBuilder: (TextEditingValue textEditingValue) {
+                if (textEditingValue.text.isEmpty) return const Iterable<VoceListino>.empty();
+                return listaListino.where((VoceListino v) {
+                  return v.titolo.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                });
+              },
+              onSelected: (VoceListino v) {
+                setState(() {
+                  _vociPreventivo.add({
+                    'titolo': v.titolo,
+                    'prezzo': v.prezzo,
+                  });
+                });
+              },
+              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                return TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  decoration: const InputDecoration(
+                    labelText: 'Cerca Servizio / Prestazione',
+                    hintText: 'Inizia a digitare...',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            if (_vociPreventivo.isNotEmpty) ...[
+              const Text('Voci selezionate:', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _vociPreventivo.length,
+                itemBuilder: (context, index) {
+                  final voce = _vociPreventivo[index];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    child: ListTile(
+                      title: Text(voce['titolo']),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('€ ${(voce['prezzo'] as double).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => setState(() => _vociPreventivo.removeAt(index)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+            const Text('Costi Aggiuntivi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 8),
             TextField(
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
-                labelText: 'Materiali (€)',
+                labelText: 'Materiali e Consumabili (€)',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.medication),
               ),
               onChanged: (val) => setState(() => _costoMateriali = double.tryParse(val) ?? 0.0),
             ),
             const SizedBox(height: 10),
-
-            // Rimborso Km A/R da Mereto
             TextField(
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
                 labelText: 'Distanza solo andata (km)',
-                helperText: 'Partenza: Mereto di Capitolo | Calcolo A/R 0,50€/km = ${_rimborsoKm.toStringAsFixed(2)} €',
+                helperText: 'Partenza: Mereto | Totale A/R: ${_kmTotaliAR.toStringAsFixed(1)} km = ${_rimborsoKm.toStringAsFixed(2)} €',
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.directions_car),
               ),
               onChanged: (val) => setState(() => _kmSoloAndata = double.tryParse(val) ?? 0.0),
             ),
             const SizedBox(height: 10),
-
-            // Rifiuti Speciali
             TextField(
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
@@ -173,8 +221,6 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               onChanged: (val) => setState(() => _costoRifiuti = double.tryParse(val) ?? 0.0),
             ),
             const SizedBox(height: 10),
-
-            // Rivalsa ENPAPI 4%
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Rivalsa ENPAPI (4%)'),
@@ -182,19 +228,15 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               value: _applicaEnpapi,
               onChanged: (val) => setState(() => _applicaEnpapi = val),
             ),
-
             if (_bollo > 0)
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.sticky_note_2, color: Colors.teal),
                 title: const Text('Marca da Bollo'),
-                subtitle: const Text('Applicata automaticamente (superati 77,47 €)'),
+                subtitle: const Text('Applicata automaticamente (> 77,47 €)'),
                 trailing: Text('${_bollo.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold)),
               ),
-
-            const SizedBox(height: 20),
-
-            // TOTALE PREVENTIVO
+            const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -206,22 +248,35 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('TOTALE PREVENTIVO:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text(
-                    '€ ${_totalePreventivo.toStringAsFixed(2)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.teal),
-                  ),
+                  Text('€ ${_totalePreventivo.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: Colors.teal)),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                onPressed: () {
-                  // Azione Stampa/Generazione PDF
+                onPressed: () async {
+                  final numero = '2026/${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+                  final dataStr = DateFormat('dd/MM/yyyy').format(DateTime.now());
+                  await PdfService.generaPreventivoPdf(
+                    numeroPreventivo: numero,
+                    dataEmissione: dataStr,
+                    nomePaziente: _pazienteController.text.isEmpty
+                        ? (_pazienteSelezionato != null ? '${_pazienteSelezionato!.nome} ${_pazienteSelezionato!.cognome}' : 'Cliente Domiciliare')
+                        : _pazienteController.text,
+                    indirizzoPaziente: _pazienteSelezionato?.indirizzo ?? '',
+                    servizi: _vociPreventivo,
+                    costoMateriali: _costoMateriali,
+                    costoRifiuti: _costoRifiuti,
+                    rimborsoKm: _rimborsoKm,
+                    subtotale: _imponibile,
+                    enpapi: _rivalsaEnpapi,
+                    bollo: _bollo,
+                    totaleComplessivo: _totalePreventivo,
+                  );
                 },
                 icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
                 label: const Text('Genera e Stampa PDF', style: TextStyle(color: Colors.white, fontSize: 16)),
