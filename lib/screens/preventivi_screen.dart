@@ -161,11 +161,30 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               children: [
                 Expanded(
                   flex: 2,
-                  child: TextField(
-                    controller: _prestazioneController,
-                    decoration: const InputDecoration(labelText: 'Prestazione', border: OutlineInputBorder()),
-                  ),
-                ),
+                  child: Autocomplete<String>(
+                      optionsBuilder: (TextEditingValue textEditingValue) {
+                          if (textEditingValue.text.isEmpty) {
+                                return const Iterable<String>.empty();
+                                    }
+                                        return listaPrestazioni.where((String option) {
+                                              return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                                                  });
+                                                    },
+                                                      onSelected: (String selection) {
+                                                          _prestazioneController.text = selection;
+                                                            },
+                                                              fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                                                                  return TextField(
+                                                                        controller: controller,
+                                                                              focusNode: focusNode,
+                                                                                    decoration: const InputDecoration(
+                                                                                            labelText: 'Prestazione',
+                                                                                                    border: OutlineInputBorder(),
+                                                                                                          ),
+                                                                                                              );
+                                                                                                                },
+                                                                                                                )
+                  )
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
