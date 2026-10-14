@@ -14,6 +14,8 @@ class PreventiviScreen extends StatefulWidget {
 
 class _PreventiviScreenState extends State<PreventiviScreen> {
   final TextEditingController _pazienteController = TextEditingController();
+  final TextEditingController _titoloManualController = TextEditingController();
+  final TextEditingController _prezzoManualController = TextEditingController();
 
   Paziente? _pazienteSelezionato;
   DateTime? _dataAppuntamento = DateTime.now();
@@ -54,19 +56,18 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // PAZIENTE AUTOCOMPLETE
             Autocomplete<Paziente>(
-              displayStringForOption: (Paziente p) => '${p.nome} ${p.cognome}',
+              displayStringForOption: (Paziente p) => '${p.nome}${p.cognome}',
               optionsBuilder: (TextEditingValue textEditingValue) {
                 if (textEditingValue.text.isEmpty) return const Iterable<Paziente>.empty();
                 return listaPazienti.where((Paziente p) {
-                  return '${p.nome} ${p.cognome}'.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                  return '${p.nome}${p.cognome}'.toLowerCase().contains(textEditingValue.text.toLowerCase());
                 });
               },
               onSelected: (Paziente p) {
                 setState(() {
                   _pazienteSelezionato = p;
-                  _pazienteController.text = '${p.nome} ${p.cognome}';
+                  _pazienteController.text = '${p.nome}${p.cognome}';
                 });
               },
               fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
@@ -82,8 +83,6 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               },
             ),
             const SizedBox(height: 12),
-
-            // DATA E ORA APPUNTAMENTO
             Card(
               elevation: 0,
               color: Colors.teal.shade50,
@@ -130,11 +129,8 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // SEZIONE PRESTAZIONE DAL LISTINO
             const Text('Prestazione', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
-
             Autocomplete<VoceListino>(
               displayStringForOption: (VoceListino v) => '${v.titolo} (€ ${v.prezzo.toStringAsFixed(2)})',
               optionsBuilder: (TextEditingValue textEditingValue) {
@@ -145,10 +141,7 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               },
               onSelected: (VoceListino v) {
                 setState(() {
-                  _vociPreventivo.add({
-                    'titolo': v.titolo,
-                    'prezzo': v.prezzo,
-                  });
+                  _vociPreventivo.add({'titolo': v.titolo, 'prezzo': v.prezzo});
                 });
               },
               fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
@@ -156,16 +149,57 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
                   controller: controller,
                   focusNode: focusNode,
                   decoration: const InputDecoration(
-                    labelText: 'Cerca Prestazione',
-                    hintText: 'Inizia a digitare per cercare nel listino...',
+                    labelText: 'Cerca Prestazione da Listino',
+                    hintText: 'Inizia a digitare...',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.medical_services_outlined),
                   ),
                 );
               },
             ),
+            const SizedBox(height: 8),
+            ExpansionTile(
+              title: const Text('Prestazione non in listino? Inserisci manualmente', style: TextStyle(fontSize: 13, color: Colors.teal)),
+              tilePadding: EdgeInsets.zero,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        controller: _titoloManualController,
+                        decoration: const InputDecoration(labelText: 'Nome Prestazione', border: OutlineInputBorder()),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: TextField(
+                        controller: _prezzoManualController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(labelText: 'Prezzo (€)', border: OutlineInputBorder()),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle, color: Colors.teal, size: 36),
+                      onPressed: () {
+                        final tit = _titoloManualController.text.trim();
+                        final prz = double.tryParse(_prezzoManualController.text) ?? 0.0;
+                        if (tit.isNotEmpty) {
+                          setState(() {
+                            _vociPreventivo.add({'titolo': tit, 'prezzo': prz});
+                            _titoloManualController.clear();
+                            _prezzoManualController.clear();
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
             const SizedBox(height: 12),
-
             if (_vociPreventivo.isNotEmpty) ...[
               const Text('Prestazioni selezionate:', style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 6),
@@ -195,34 +229,29 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               ),
               const SizedBox(height: 16),
             ],
-
-            // COSTI AGGIUNTIVI
-            const Text('Costi Aggiuntivi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text('Dettagli e Costi Extra', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 8),
-
             TextField(
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
-                labelText: 'Materiali e Consumabili (€)',
+                labelText: 'Materiali (€)',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.medication),
               ),
               onChanged: (val) => setState(() => _costoMateriali = double.tryParse(val) ?? 0.0),
             ),
             const SizedBox(height: 10),
-
             TextField(
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
                 labelText: 'Distanza solo andata (km)',
-                helperText: 'Partenza: Mereto | Totale A/R: ${_kmTotaliAR.toStringAsFixed(1)} km = ${_rimborsoKm.toStringAsFixed(2)} €',
+                helperText: 'Partenza: Mereto | Calcolo A/R 0,50€/km = ${_rimborsoKm.toStringAsFixed(2)} €',
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.directions_car),
               ),
               onChanged: (val) => setState(() => _kmSoloAndata = double.tryParse(val) ?? 0.0),
             ),
             const SizedBox(height: 10),
-
             TextField(
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
@@ -233,7 +262,6 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               onChanged: (val) => setState(() => _costoRifiuti = double.tryParse(val) ?? 0.0),
             ),
             const SizedBox(height: 10),
-
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Rivalsa ENPAPI (4%)'),
@@ -241,7 +269,6 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               value: _applicaEnpapi,
               onChanged: (val) => setState(() => _applicaEnpapi = val),
             ),
-
             if (_bollo > 0)
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -250,10 +277,7 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
                 subtitle: const Text('Applicata automaticamente (> 77,47 €)'),
                 trailing: Text('${_bollo.toStringAsFixed(2)} €', style: const TextStyle(fontWeight: FontWeight.bold)),
               ),
-
             const SizedBox(height: 16),
-
-            // TOTALE
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -270,7 +294,6 @@ class _PreventiviScreenState extends State<PreventiviScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
             SizedBox(
               width: double.infinity,
               height: 50,
